@@ -21,7 +21,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <PackageId>Hangfire.OpsToolkit.JobControl</PackageId>
+    <PackageId>OpsToolkit.Hangfire.JobControl</PackageId>
     <!-- Fallback for local `dotnet pack` only 鈥?release builds derive the version from the git tag. -->
     <Version>0.1.0</Version>
     <Authors>Xiaoguo Ge</Authors>

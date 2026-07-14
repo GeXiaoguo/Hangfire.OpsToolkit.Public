@@ -32,7 +32,7 @@ storage model:
 ## Install
 
 ```bash
-dotnet add package Hangfire.OpsToolkit.JobControl
+dotnet add package OpsToolkit.Hangfire.JobControl
 ```
 
 > The package will become available after the first nuget.org release. Until then, clone this
