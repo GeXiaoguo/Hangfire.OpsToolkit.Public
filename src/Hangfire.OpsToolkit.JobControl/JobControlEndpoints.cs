@@ -52,24 +52,41 @@ public static class JobControlEndpoints
     // /api/hangfire/recurring looks equally sensible but can silently 401 from the browser despite a
     // valid session, if that conversion is scoped to /hangfire only.
     public const string DefaultApiBase = "/hangfire/api/recurring";
-    public const string DefaultUiPath = "/hangfire/job-control";
 
-    private const string UiResourceName = "Hangfire.OpsToolkit.JobControl.wwwroot.job-control.html";
+    // Renamed from bare "/hangfire/job-control" now that a second page (RunEndpoints, "/runs") exists
+    // alongside it. LegacyUiPath keeps old bookmarks working
+    // via a redirect mapped by MapJobControl.
+    public const string DefaultUiPath = "/hangfire/job-control/recurring";
+    public const string LegacyUiPath = "/hangfire/job-control";
+
+    private const string UiResourceName = "Hangfire.OpsToolkit.JobControl.wwwroot.recurring.html";
     private const string ApiBasePlaceholder = "{{API_BASE}}";
+    private const string OwnUiPathPlaceholder = "{{OWN_UI_PATH}}";
+    private const string RunsUiPathPlaceholder = "{{RUNS_UI_PATH}}";
+    private const string DashboardPathPlaceholder = "{{DASHBOARD_PATH}}";
 
     // GET /audit request cap — independent of JobControlOptions.AuditDefaultReadLimit (the default when
     // a caller doesn't specify one); this bounds what a caller CAN ask for even when specifying a limit.
-    private const int AuditReadLimitHardCap = 1000;
+    // Internal (not private): RunEndpoints' own per-job audit passthrough shares this same cap.
+    internal const int AuditReadLimitHardCap = 1000;
 
     /// <summary>
-    /// One-call integration: maps the API and the bundled UI. <paramref name="viewPolicy"/> gates reads
-    /// (job list + audit history + the UI page); <paramref name="managePolicy"/> gates mutations
-    /// (disable/enable/trigger/delete — each of which is audited, see <see cref="AuditStore"/>).
+    /// One-call integration: maps both dashboards — Recurring Jobs (this one) and Job Runs (<see
+    /// cref="RunEndpoints"/>) — plus a redirect from the pre-rename <see cref="LegacyUiPath"/>.
+    /// <paramref name="viewPolicy"/> gates reads (job lists + audit history + both UI pages);
+    /// <paramref name="managePolicy"/> gates mutations (disable/enable/trigger/delete — each of which is
+    /// audited, see <see cref="AuditStore"/>).
     /// </summary>
     /// <remarks>
-    /// Behavior change: <c>/{jobId}/delete</c> now returns 404 for an unknown id (previously 200
-    /// unconditionally) — a false-success shouldn't reach the audit record. Pre-1.0, so not versioned
-    /// as a breaking change, but worth flagging to callers that inspected the old status code.
+    /// Behavior changes, both pre-1.0 (no tag cut yet) so not versioned as breaking, but worth flagging
+    /// to any caller that already depended on the old shape:
+    /// <list type="bullet">
+    /// <item><c>/{jobId}/delete</c> now returns 404 for an unknown id (previously 200 unconditionally) —
+    /// a false-success shouldn't reach the audit record.</item>
+    /// <item>The default UI path moved from <c>/hangfire/job-control</c> to <see cref="DefaultUiPath"/>
+    /// now that a second page exists alongside it; the old
+    /// path redirects rather than 404ing.</item>
+    /// </list>
     /// </remarks>
     public static void MapJobControl(
         this IEndpointRouteBuilder endpoints,
@@ -77,10 +94,16 @@ public static class JobControlEndpoints
         string managePolicy,
         string uiPath = DefaultUiPath,
         string apiBase = DefaultApiBase,
+        string runsUiPath = RunEndpoints.DefaultUiPath,
+        string runsApiBase = RunEndpoints.DefaultApiBase,
         JobControlOptions? options = null)
     {
+        var jobControlOptions = options ?? new JobControlOptions();
         endpoints.MapJobControlApi(viewPolicy, managePolicy, apiBase, options);
-        endpoints.MapJobControlUi(uiPath, apiBase).RequireAuthorization(viewPolicy);
+        endpoints.MapJobControlUi(uiPath, apiBase, runsUiPath, jobControlOptions.DashboardPath).RequireAuthorization(viewPolicy);
+        endpoints.MapJobRunsApi(viewPolicy, managePolicy, runsApiBase, options);
+        endpoints.MapJobRunsUi(runsUiPath, runsApiBase, uiPath).RequireAuthorization(viewPolicy);
+        endpoints.MapGet(LegacyUiPath, () => Results.Redirect(uiPath)).RequireAuthorization(viewPolicy);
     }
 
     /// <summary>API only — for hosts that bring their own frontend.</summary>
@@ -227,23 +250,36 @@ public static class JobControlEndpoints
     }
 
     /// <summary>
-    /// Bundled UI only. Returns the endpoint builder so a caller composing manually can apply its own
-    /// auth requirement, the same way it would for <c>MapHangfireDashboard(...)</c>; prefer
-    /// <see cref="MapJobControl"/>, which gates the page with the view policy automatically.
+    /// Bundled UI only. <paramref name="runsUiPath"/> feeds the shared cross-nav header's link forward to
+    /// the Job Runs page — see <see cref="RunEndpoints.MapJobRunsUi"/> for the mirror. <paramref
+    /// name="dashboardPath"/> builds the page's "view in dashboard" links (see <see
+    /// cref="JobControlOptions.DashboardPath"/>); its trailing slash, if any, is trimmed before
+    /// substitution so the page's own <c>+ "/jobs/details/..."</c> concatenation never double-slashes.
+    /// Returns the endpoint builder so a caller composing manually can apply its own auth requirement, the
+    /// same way it would for <c>MapHangfireDashboard(...)</c>; prefer <see cref="MapJobControl"/>, which
+    /// gates the page with the view policy automatically.
     /// </summary>
     public static RouteHandlerBuilder MapJobControlUi(
         this IEndpointRouteBuilder endpoints,
         string uiPath = DefaultUiPath,
-        string apiBase = DefaultApiBase)
+        string apiBase = DefaultApiBase,
+        string runsUiPath = RunEndpoints.DefaultUiPath,
+        string dashboardPath = "/hangfire")
     {
-        var html = loadUiTemplate().Replace(ApiBasePlaceholder, apiBase);
+        var html = loadUiTemplate()
+            .Replace(ApiBasePlaceholder, apiBase)
+            .Replace(OwnUiPathPlaceholder, uiPath)
+            .Replace(RunsUiPathPlaceholder, runsUiPath)
+            .Replace(DashboardPathPlaceholder, dashboardPath.TrimEnd('/'));
         return endpoints.MapGet(uiPath, () => Results.Content(html, "text/html"));
     }
 
     // Generic claims-identity extraction by default — works for any ASP.NET Core auth scheme the host
     // configures, not tied to any particular identity provider. Hosts whose principal carries identity
-    // elsewhere (e.g. an email claim) override via JobControlOptions.ActorProvider.
-    private static string actor(HttpContext http, JobControlOptions options) =>
+    // elsewhere (e.g. an email claim) override via JobControlOptions.ActorProvider. Internal (not
+    // private): RunEndpoints' mutations share this exact extraction, since audit actor identity must be
+    // computed identically everywhere it's recorded.
+    internal static string actor(HttpContext http, JobControlOptions options) =>
         options.ActorProvider?.Invoke(http) ?? http.User.Identity?.Name ?? "unknown";
 
     // Mirrors Job.ToString(includeQueue: false) — the fallback the built-in dashboard's Html.JobName

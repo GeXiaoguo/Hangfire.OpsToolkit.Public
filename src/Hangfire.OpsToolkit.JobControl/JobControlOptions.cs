@@ -21,4 +21,14 @@ public sealed record JobControlOptions
 
     /// <summary><c>GET /audit</c>'s default row limit when the caller doesn't specify one.</summary>
     public int AuditDefaultReadLimit { get; init; } = 200;
+
+    /// <summary>The Runs dashboard's paged list endpoints' default page size when the caller doesn't specify <c>count</c>.</summary>
+    public int RunsDefaultPageSize { get; init; } = 50;
+
+    /// <summary>
+    /// Path the built-in Hangfire dashboard is mounted at, used only to build "view in dashboard" links
+    /// in the bundled UI. Default <c>/hangfire</c> — override when the host mounts it elsewhere (e.g.
+    /// <c>app.UseHangfireDashboard("/admin/jobs")</c>).
+    /// </summary>
+    public string DashboardPath { get; init; } = "/hangfire";
 }

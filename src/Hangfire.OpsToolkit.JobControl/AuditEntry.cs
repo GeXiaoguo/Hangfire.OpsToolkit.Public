@@ -3,9 +3,8 @@ using System.Text.Json;
 namespace Hangfire.OpsToolkit.JobControl;
 
 /// <summary>
-/// One recorded action against the job-control surface: a human operation in Phase 1 (disable / enable
-/// / trigger / delete), and in later phases a system-detected definition change or terminal
-/// state-transition. <see cref="V"/> is the stored schema version, carried on every entry so a future
+/// One recorded action against the job-control surface, including recurring-job controls, run
+/// mutations, and cancellation acknowledgments. <see cref="V"/> is the stored schema version, carried on every entry so a future
 /// release can add fields without an old binary choking on a newer entry, or vice versa — see
 /// <see cref="TryDeserialize"/>'s parse-tolerant contract.
 /// </summary>

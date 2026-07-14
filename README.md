@@ -1,26 +1,31 @@
 # Hangfire.OpsToolkit
 
-Production controls for Hangfire recurring jobs—without adding a database schema, a frontend build,
-or host-specific infrastructure.
+Production controls for Hangfire installations that need durable operator state, explicit
+authorization, and an audit trail—without adding a database schema, frontend build, or
+storage-provider dependency.
 
-`Hangfire.OpsToolkit.JobControl` gives operators a safe way to disable, enable, trigger, inspect, and
-delete recurring jobs. Every human action is recorded in a durable audit trail, and the package ships
-with a self-contained operator UI that plugs into an existing ASP.NET Core host.
+`Hangfire.OpsToolkit.JobControl` provides:
+
+- durable disable and enable for recurring jobs;
+- governed trigger and delete actions;
+- a Job Runs dashboard for queued, processing, scheduled, succeeded, failed, and deleted jobs;
+- reasoned, race-protected cancel, requeue, and delete actions;
+- cancellation acknowledgement for processing jobs;
+- a count-retained operator audit trail; and
+- two embedded, zero-build operator UIs.
 
 ## Why use it?
 
 Hangfire's dashboard is excellent for observing background work, but production teams often need a
-stronger operational boundary around recurring jobs. JobControl adds that boundary while staying
-close to Hangfire's own storage model:
+stronger operational boundary. JobControl adds that boundary while staying close to Hangfire's own
+storage model:
 
-- **Durable disable and enable:** disabled state survives application restarts and
-  `RecurringJob.AddOrUpdate` registrations.
 - **Operator accountability:** audit entries capture actor, action, job, reason, timestamp, and
   outcome.
 - **Authorization by construction:** separate ASP.NET Core policies protect viewing and management.
-- **Zero-schema adoption:** state is stored in Hangfire's existing storage primitives—no migrations
-  or extra database tables.
-- **Bundled UI:** one embedded HTML resource, with no npm toolchain or static-file setup.
+- **Zero-schema adoption:** toolkit state uses Hangfire's existing storage primitives—no migrations
+  or additional tables.
+- **Bundled UI:** two embedded HTML resources, with no npm toolchain or static-file setup.
 - **Storage-provider friendly:** the package depends on `Hangfire.Core`, not a particular SQL or
   storage provider.
 
@@ -35,58 +40,61 @@ dotnet add package Hangfire.OpsToolkit.JobControl
 
 ## Quick start
 
-Register the server-side filter with Hangfire:
+Use one options instance for both the server and HTTP planes so their audit retention agrees:
 
 ```csharp
+var jobControl = new JobControlOptions
+{
+    ActorProvider = context =>
+        context.User.FindFirst("email")?.Value ?? "unknown",
+};
+
 builder.Services.AddHangfire(configuration => configuration
     .UsePostgreSqlStorage(/* your existing storage configuration */)
-    .UseJobControl());
-```
+    .UseJobControl(jobControl));
 
-Map the API and UI using authorization policies from your application:
-
-```csharp
-app.MapJobControl(
-    viewPolicy: "CanViewJobs",
-    managePolicy: "CanManageJobs");
-```
-
-Then open `/hangfire/job-control` in your host. The default endpoints are:
-
-| Method | Route | Purpose |
-|---|---|---|
-| `GET` | `/hangfire/api/recurring` | List recurring jobs and operational state |
-| `POST` | `/hangfire/api/recurring/{jobId}/disable` | Disable a job with a reason |
-| `POST` | `/hangfire/api/recurring/{jobId}/enable` | Re-enable a job |
-| `POST` | `/hangfire/api/recurring/{jobId}/trigger` | Trigger a job now |
-| `POST` | `/hangfire/api/recurring/{jobId}/delete` | Delete a recurring job |
-| `GET` | `/hangfire/api/recurring/audit` | Read operator-action history |
-| `GET` | `/hangfire/job-control` | Open the bundled operator UI |
-
-Customize actor identity and audit retention when mapping the endpoints:
-
-```csharp
 app.MapJobControl(
     viewPolicy: "CanViewJobs",
     managePolicy: "CanManageJobs",
-    options: new JobControlOptions
-    {
-        ActorProvider = context =>
-            context.User.FindFirst("email")?.Value ?? "unknown",
-        AuditMaxEntries = 10_000,
-        AuditDefaultReadLimit = 200,
-    });
+    options: jobControl);
 ```
 
-## Design philosophy
+`UseJobControl()` installs the server-side filters that enforce recurring-job disable and
+acknowledge processing-job cancellation. `MapJobControl()` maps both APIs and both UIs.
 
-OpsToolkit is intentionally modular: applications install only the operational capabilities they
-need. JobControl keeps its dependency surface small—`Hangfire.Core`, the ASP.NET Core shared
-framework, and the .NET base libraries—and does not couple consumers to the demo host or a storage
-provider.
+The default pages are:
 
-The authorization policies are required arguments. This makes accidentally mapping management
-endpoints without an authorization gate harder than doing the secure thing.
+- `/hangfire/job-control/recurring` — recurring-job controls and history
+- `/hangfire/job-control/runs` — run monitoring, details, and actions
+- `/hangfire/job-control` — redirects to the recurring-jobs page
+
+The view and manage policies are required arguments. Reads and UIs use the view policy; all
+mutations use the manage policy.
+
+## Configuration
+
+```csharp
+var options = new JobControlOptions
+{
+    ActorProvider = context => context.User.Identity?.Name ?? "unknown",
+    AuditMaxEntries = 10_000,
+    AuditDefaultReadLimit = 200,
+    RunsDefaultPageSize = 50,
+};
+```
+
+All toolkit state is kept in Hangfire storage: custom recurring-job hash fields, a capped audit
+list, and per-job cancellation markers. Hosts need no toolkit schema or migration.
+
+Cancellation of a processing job is cooperative. Job bodies must flow a `CancellationToken` into
+awaited work or check `IJobCancellationToken`; otherwise they may complete after the job moves to
+Deleted. The audit trail records that case as `completed-anyway`.
+
+## Feature documentation
+
+- [Recurring Jobs control](HangfireRecurringJobs.md)
+- [Job Runs dashboard and cancellation](HangfireJobRuns.md)
+- [Operator audit trail](HangfireAuditTrail.md)
 
 ## Try the demo
 
@@ -98,7 +106,7 @@ docker compose -f docker-compose.postgres.yaml up -d
 dotnet run
 ```
 
-Open `/hangfire` for the standard dashboard or `/hangfire/job-control` for JobControl.
+Open `/hangfire` for the standard dashboard or either toolkit page listed above.
 
 ## Build and test
 
@@ -113,9 +121,9 @@ dotnet test Hangfire.OpsToolkit.sln --configuration Release --no-build
 ## Community
 
 Bug reports, compatibility findings, documentation improvements, and focused feature proposals are
-welcome through GitHub Issues. If you run Hangfire in a production or regulated environment, sharing
-the operational problem you are solving is especially valuable—it helps keep the toolkit practical
-and provider-neutral.
+welcome through GitHub Issues. If you run Hangfire in a production or regulated environment,
+sharing the operational problem you are solving is especially valuable—it helps keep the toolkit
+practical and provider-neutral.
 
 Hangfire.OpsToolkit is an independent community project and is not affiliated with or endorsed by
 Hangfire OÜ.

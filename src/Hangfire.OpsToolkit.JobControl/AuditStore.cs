@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Hangfire.Storage;
 
 namespace Hangfire.OpsToolkit.JobControl;
@@ -108,6 +109,52 @@ public static class AuditStore
 
         return jobId is null
             ? entries.ToList()
-            : entries.Where(entry => entry.JobId == jobId).Take(limit).ToList();
+            : entries.Where(entry => matchesJobId(entry, jobId)).Take(limit).ToList();
+    }
+
+    // §5: a jobId query matches the entry's own target id, or either direction of the recurring-job
+    // <-> background-job correlation stamped in Detail (TryGetRecurringJobId below; the trigger
+    // endpoint's own Detail["BackgroundJobId"] seed is the other direction) — so a recurring job's
+    // drawer finds run-level interventions (cancel/requeue/delete-run/cancel-ack/abort-observed)
+    // against its executions with no UI changes, and a background job id finds both the human trigger
+    // that created it and everything done to it since.
+    private static bool matchesJobId(AuditEntry entry, string jobId)
+    {
+        if (entry.JobId == jobId) return true;
+        if (entry.Detail is null) return false;
+        return (entry.Detail.TryGetValue("RecurringJobId", out var recurringJobId) && recurringJobId == jobId)
+            || (entry.Detail.TryGetValue("BackgroundJobId", out var backgroundJobId) && backgroundJobId == jobId);
+    }
+
+    /// <summary>
+    /// The recurring-job id a background job was created from, if any — Hangfire's own
+    /// <c>RecurringJobId</c> job parameter (stamped by <c>RecurringJobExtensions.TriggerRecurringJob</c>,
+    /// not this library). Read back so a run-level audit entry (cancel/requeue/delete-run/cancel-ack/
+    /// abort-observed) can carry <c>Detail["RecurringJobId"]</c> — §5's recurring correlation, the
+    /// read-side counterpart of the trigger endpoint's own <c>Detail["BackgroundJobId"]</c> seed.
+    /// </summary>
+    /// <remarks>
+    /// Job parameters set via <c>CreateContext.Parameters</c> (which is how Hangfire itself stamps this
+    /// one — <c>RecurringJobExtensions.TriggerRecurringJob</c>) go through
+    /// <c>SerializationHelper.Serialize(value, SerializationOption.User)</c> before landing in storage —
+    /// verified empirically (a real triggered job's raw parameter reads back as the JSON string literal
+    /// <c>"heartbeat-every-minute"</c>, quotes included), unlike <see cref="CancellationRequestStore"/>'s
+    /// own marker, which this library writes directly via the core connection API with no such wrapping.
+    /// A bare-string read here would never equal a caller's un-quoted recurring job id, silently breaking
+    /// the correlation match in <see cref="matchesJobId"/>.
+    /// </remarks>
+    public static string? TryGetRecurringJobId(IStorageConnection connection, string jobId)
+    {
+        var raw = connection.GetJobParameter(jobId, "RecurringJobId");
+        if (string.IsNullOrEmpty(raw)) return null;
+
+        try
+        {
+            return JsonSerializer.Deserialize<string>(raw);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }

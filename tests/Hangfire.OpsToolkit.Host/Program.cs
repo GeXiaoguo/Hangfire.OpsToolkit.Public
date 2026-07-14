@@ -24,7 +24,14 @@ builder.Services.AddHangfire(config => config
     .UsePostgreSqlStorage(options => options.UseNpgsqlConnection(connectionString))
     .UseJobControl());
 
-builder.Services.AddHangfireServer();
+builder.Services.AddHangfireServer(options =>
+{
+    // Tuned down from the 5s default so the cancel-protocol integration/manual tests (which wait for the
+    // watcher to observe an abort) run in a
+    // reasonable time. A production host should weigh this against the per-tick GetStateData cost per
+    // watched token before copying this value.
+    options.CancellationCheckInterval = TimeSpan.FromSeconds(1);
+});
 
 var app = builder.Build();
 
@@ -43,10 +50,15 @@ app.MapJobControl(
     managePolicy: Policies.Manage);
 
 // A few demo recurring jobs so there's something to see/disable/enable/trigger from
-// /hangfire/job-control (or the built-in /hangfire dashboard) right after `dotnet run`.
+// /hangfire/job-control/recurring (or the built-in /hangfire dashboard) right after `dotnet run`.
 RecurringJob.AddOrUpdate<DemoJobs>("heartbeat-every-minute", job => job.Heartbeat(), Cron.Minutely());
 RecurringJob.AddOrUpdate<DemoJobs>("nightly-report", job => job.NightlyReport(), Cron.Daily());
 RecurringJob.AddOrUpdate<DemoJobs>("flaky-every-2-minutes", job => job.SometimesFails(), "*/2 * * * *");
+
+// Never fire on their own (Cron.Never()) — seeded purely so "Trigger now" on the Recurring page can put
+// one in the Processing tab on demand for local verification.
+RecurringJob.AddOrUpdate<CancellationTestJobs>("cancel-demo-token-honoring", job => job.HonoringLoop(default), Cron.Never());
+RecurringJob.AddOrUpdate<CancellationTestJobs>("cancel-demo-token-ignoring", job => job.IgnoringLoop(), Cron.Never());
 
 app.Run();
 
@@ -80,4 +92,32 @@ public class DemoJobs
                 "Simulated transient failure — try disabling this job from /hangfire/job-control.");
         Console.WriteLine($"[{DateTime.UtcNow:O}] flaky job ran fine this time");
     }
+}
+
+// Fixtures for the cancel protocol — one job that observes an
+// abort promptly (flows its token into awaited work, mechanic #3) and one that can't (no token at all,
+// so it runs to completion regardless of any cancel request — the "completed anyway" case, §2.3). The
+// cancel-protocol integration tests enqueue these directly (BackgroundJob.Enqueue); the demo host also
+// registers them as never-firing recurring jobs so "Trigger now" can seed one on demand for manual
+// verification against the Job Runs UI.
+public class CancellationTestJobs
+{
+    public async Task HonoringLoop(CancellationToken token)
+    {
+        for (var i = 0; i < 3000; i++) // up to ~60s at the 200ms step below — tests cancel it well before that
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(200), token);
+        }
+    }
+
+    public void IgnoringLoop()
+    {
+        Thread.Sleep(TimeSpan.FromSeconds(4)); // long enough for a test to cancel it mid-flight
+    }
+
+    // Deterministic Failed fixture for the requeue/delete tests (RequeueDeleteApiTests) — no automatic
+    // retry, so it lands in Failed on the very first attempt instead of cycling through Scheduled
+    // backoff first.
+    [AutomaticRetry(Attempts = 0)]
+    public void AlwaysFails() => throw new InvalidOperationException("Seeded failure for requeue/delete tests.");
 }

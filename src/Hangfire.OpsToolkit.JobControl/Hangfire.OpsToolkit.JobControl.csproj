@@ -64,9 +64,11 @@
     <PackageReference Include="Hangfire.Core" Version="1.8.14" />
   </ItemGroup>
 
-  <!-- The operator UI: one embedded HTML file, no wwwroot static-file hosting required of the host. -->
+  <!-- The operator UI: one embedded HTML file per dashboard page, no wwwroot static-file hosting
+       required of the host. -->
   <ItemGroup>
-    <EmbeddedResource Include="wwwroot\job-control.html" />
+    <EmbeddedResource Include="wwwroot\recurring.html" />
+    <EmbeddedResource Include="wwwroot\runs.html" />
   </ItemGroup>
 
 </Project>

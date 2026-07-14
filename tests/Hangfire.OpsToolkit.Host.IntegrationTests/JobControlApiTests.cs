@@ -9,6 +9,9 @@ namespace Hangfire.OpsToolkit.Host.IntegrationTests;
 
 // Drives the job-control HTTP API against the real sample host (real Postgres storage, real
 // AddHangfireServer()) — the demo recurring jobs registered in Program.cs are the fixtures.
+// [Collection("Sample host")]: see SampleHostCollection — this class and RunEndpointsApiTests each boot
+// a full WebApplicationFactory<Program> against the same Postgres and must not start concurrently.
+[Collection("Sample host")]
 public class JobControlApiTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };

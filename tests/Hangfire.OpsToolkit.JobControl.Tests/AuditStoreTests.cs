@@ -86,4 +86,37 @@ public class AuditStoreTests
         AuditStore.Read(storage, limit: 200).ShouldNotContain(e => e.JobId == targetJobId);
         AuditStore.Read(storage, limit: 200, jobId: targetJobId).ShouldContain(e => e.JobId == targetJobId);
     }
+
+    // Pins §5's two correlation directions: a run-level entry (cancel/requeue/delete-run/cancel-ack)
+    // targets a *background* job id but carries Detail["RecurringJobId"] when that job was spawned by a
+    // recurring job, while the trigger endpoint's own entry targets the *recurring* job id and carries
+    // Detail["BackgroundJobId"] the other way. A ?jobId= query by either id must find both entries, plus
+    // its own direct JobId match — with no correlation to unrelated noise.
+    [Fact]
+    public void AuditRead_JobIdFilter_MatchesCorrelationIds_Test()
+    {
+        var storage = buildStorage();
+        var recurringJobId = $"recurring-{Guid.NewGuid()}";
+        var backgroundJobId = $"background-{Guid.NewGuid()}";
+        var unrelatedJobId = $"unrelated-{Guid.NewGuid()}";
+
+        var cancelEntry = new AuditEntry(AuditEntry.CurrentVersion, DateTime.UtcNow, "tester", "cancel",
+            backgroundJobId, "reason", "ok", new Dictionary<string, string> { ["RecurringJobId"] = recurringJobId });
+        var triggerEntry = new AuditEntry(AuditEntry.CurrentVersion, DateTime.UtcNow, "tester", "trigger",
+            recurringJobId, null, "ok", new Dictionary<string, string> { ["BackgroundJobId"] = backgroundJobId });
+
+        AuditStore.Append(storage, cancelEntry, maxEntries: 10_000);
+        AuditStore.Append(storage, triggerEntry, maxEntries: 10_000);
+        AuditStore.Append(storage, entry(unrelatedJobId, "noise"), maxEntries: 10_000);
+
+        var byRecurringId = AuditStore.Read(storage, limit: 200, jobId: recurringJobId);
+        byRecurringId.ShouldContain(e => e.Action == "cancel" && e.JobId == backgroundJobId && e.Detail!["RecurringJobId"] == recurringJobId);
+        byRecurringId.ShouldContain(e => e.Action == "trigger" && e.JobId == recurringJobId);
+        byRecurringId.ShouldNotContain(e => e.JobId == unrelatedJobId);
+
+        var byBackgroundId = AuditStore.Read(storage, limit: 200, jobId: backgroundJobId);
+        byBackgroundId.ShouldContain(e => e.Action == "cancel" && e.JobId == backgroundJobId);
+        byBackgroundId.ShouldContain(e => e.Action == "trigger" && e.JobId == recurringJobId && e.Detail!["BackgroundJobId"] == backgroundJobId);
+        byBackgroundId.ShouldNotContain(e => e.JobId == unrelatedJobId);
+    }
 }
