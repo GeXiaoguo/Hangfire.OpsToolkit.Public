@@ -1,10 +1,10 @@
-# Hangfire.OpsToolkit
+# OpsToolkit.Hangfire
 
 Production controls for Hangfire installations that need durable operator state, explicit
 authorization, and an audit trail—without adding a database schema, frontend build, or
 storage-provider dependency.
 
-`Hangfire.OpsToolkit.JobControl` provides:
+`OpsToolkit.Hangfire.JobControl` provides:
 
 - durable disable and enable for recurring jobs;
 - governed trigger and delete actions;
@@ -35,8 +35,7 @@ storage model:
 dotnet add package OpsToolkit.Hangfire.JobControl
 ```
 
-> The package will become available after the first nuget.org release. Until then, clone this
-> repository and reference the project directly.
+[View `OpsToolkit.Hangfire.JobControl` on NuGet.org](https://www.nuget.org/packages/OpsToolkit.Hangfire.JobControl/).
 
 ## Quick start
 
@@ -101,7 +100,7 @@ Deleted. The audit trail records that case as `completed-anyway`.
 The included host uses PostgreSQL for realistic storage and HTTP integration testing:
 
 ```bash
-cd tests/Hangfire.OpsToolkit.Host
+cd tests/OpsToolkit.Hangfire.Host
 docker compose -f docker-compose.postgres.yaml up -d
 dotnet run
 ```
@@ -113,9 +112,9 @@ Open `/hangfire` for the standard dashboard or either toolkit page listed above.
 With the demo PostgreSQL container running:
 
 ```bash
-dotnet restore Hangfire.OpsToolkit.sln
-dotnet build Hangfire.OpsToolkit.sln --configuration Release --no-restore
-dotnet test Hangfire.OpsToolkit.sln --configuration Release --no-build
+dotnet restore OpsToolkit.Hangfire.sln
+dotnet build OpsToolkit.Hangfire.sln --configuration Release --no-restore
+dotnet test OpsToolkit.Hangfire.sln --configuration Release --no-build
 ```
 
 ## Community
@@ -125,7 +124,7 @@ welcome through GitHub Issues. If you run Hangfire in a production or regulated 
 sharing the operational problem you are solving is especially valuable—it helps keep the toolkit
 practical and provider-neutral.
 
-Hangfire.OpsToolkit is an independent community project and is not affiliated with or endorsed by
+OpsToolkit.Hangfire is an independent community project and is not affiliated with or endorsed by
 Hangfire OÜ.
 
 ## License

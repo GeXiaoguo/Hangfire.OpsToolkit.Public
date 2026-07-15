@@ -20,7 +20,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: hangfire_opstoolkit
+          POSTGRES_DB: opstoolkit_hangfire
         ports:
           - 5434:5432
         options: >-
@@ -42,17 +42,17 @@ jobs:
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Restore
-        run: dotnet restore Hangfire.OpsToolkit.sln
+        run: dotnet restore OpsToolkit.Hangfire.sln
 
       - name: Build
-        run: dotnet build Hangfire.OpsToolkit.sln --configuration Release --no-restore
+        run: dotnet build OpsToolkit.Hangfire.sln --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test Hangfire.OpsToolkit.sln --configuration Release --no-build
+        run: dotnet test OpsToolkit.Hangfire.sln --configuration Release --no-build
 
       - name: Pack
         run: >-
-          dotnet pack src/Hangfire.OpsToolkit.JobControl/Hangfire.OpsToolkit.JobControl.csproj
+          dotnet pack src/OpsToolkit.Hangfire.JobControl/OpsToolkit.Hangfire.JobControl.csproj
           --configuration Release
           --output nupkg
           -p:Version=${{ steps.version.outputs.version }}
@@ -60,7 +60,7 @@ jobs:
       - name: Test packed package
         shell: bash
         run: |
-          dotnet clean tests/Hangfire.OpsToolkit.Host.IntegrationTests/Hangfire.OpsToolkit.Host.IntegrationTests.csproj \
+          dotnet clean tests/OpsToolkit.Hangfire.Host.IntegrationTests/OpsToolkit.Hangfire.Host.IntegrationTests.csproj \
             --configuration Release
           dotnet new nugetconfig \
             --output "$GITHUB_WORKSPACE/nupkg/package-smoke-config" \
@@ -68,13 +68,13 @@ jobs:
           dotnet nuget add source "$GITHUB_WORKSPACE/nupkg" \
             --name package-smoke \
             --configfile "$GITHUB_WORKSPACE/nupkg/package-smoke-config/NuGet.Config"
-          dotnet restore tests/Hangfire.OpsToolkit.Host.IntegrationTests/Hangfire.OpsToolkit.Host.IntegrationTests.csproj \
+          dotnet restore tests/OpsToolkit.Hangfire.Host.IntegrationTests/OpsToolkit.Hangfire.Host.IntegrationTests.csproj \
             -p:UsePackedJobControl=true \
             -p:JobControlPackageVersion=${{ steps.version.outputs.version }} \
             --packages "$GITHUB_WORKSPACE/nupkg/.package-smoke" \
             --no-cache \
             --configfile "$GITHUB_WORKSPACE/nupkg/package-smoke-config/NuGet.Config"
-          dotnet test tests/Hangfire.OpsToolkit.Host.IntegrationTests/Hangfire.OpsToolkit.Host.IntegrationTests.csproj \
+          dotnet test tests/OpsToolkit.Hangfire.Host.IntegrationTests/OpsToolkit.Hangfire.Host.IntegrationTests.csproj \
             --configuration Release \
             --no-restore \
             -p:UsePackedJobControl=true \

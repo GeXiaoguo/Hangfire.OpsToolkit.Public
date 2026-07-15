@@ -1,6 +1,6 @@
 # Recurring Jobs control
 
-`Hangfire.OpsToolkit.JobControl` adds governed operator controls for Hangfire recurring jobs. It stores control state in Hangfire's own storage and provides both an HTTP API and an embedded, zero-build UI.
+`OpsToolkit.Hangfire.JobControl` adds governed operator controls for Hangfire recurring jobs. It stores control state in Hangfire's own storage and provides both an HTTP API and an embedded, zero-build UI.
 
 ## Capabilities
 
